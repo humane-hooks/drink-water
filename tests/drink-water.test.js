@@ -499,6 +499,121 @@ test('performAction status: returns null newState and formatted context', () => 
   assert.match(result.contextText, /Snoozed: no/);
 });
 
+const { approveBashCommand, cmdPretool } = require('../hooks/drink-water.js');
+
+const HOOK_PATH = require.resolve('../hooks/drink-water.js');
+
+test('approveBashCommand: bare path + --ack', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack`), true);
+});
+
+test('approveBashCommand: double-quoted path + --ack', () => {
+  assert.strictEqual(approveBashCommand(`node "${HOOK_PATH}" --ack`), true);
+});
+
+test('approveBashCommand: single-quoted path + --ack', () => {
+  assert.strictEqual(approveBashCommand(`node '${HOOK_PATH}' --ack`), true);
+});
+
+test('approveBashCommand: --status', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --status`), true);
+});
+
+test('approveBashCommand: --snooze with minutes', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --snooze 30`), true);
+});
+
+test('approveBashCommand: --snooze without minutes', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --snooze`), true);
+});
+
+test('approveBashCommand: leading/trailing whitespace is fine', () => {
+  assert.strictEqual(approveBashCommand(`  node ${HOOK_PATH} --ack  `), true);
+});
+
+test('approveBashCommand: rejects command chaining (&&)', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack && rm -rf /`), false);
+});
+
+test('approveBashCommand: rejects semicolon injection', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack; echo pwned`), false);
+});
+
+test('approveBashCommand: rejects pipe injection', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack | cat /etc/passwd`), false);
+});
+
+test('approveBashCommand: rejects redirection', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack > /tmp/x`), false);
+});
+
+test('approveBashCommand: rejects unknown flag', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --nuke`), false);
+});
+
+test('approveBashCommand: rejects --check (reserved for the UserPromptSubmit hook)', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --check`), false);
+});
+
+test('approveBashCommand: rejects a different script path', () => {
+  assert.strictEqual(approveBashCommand('node /tmp/other-script.js --ack'), false);
+});
+
+test('approveBashCommand: rejects non-string input', () => {
+  assert.strictEqual(approveBashCommand(null), false);
+  assert.strictEqual(approveBashCommand(undefined), false);
+  assert.strictEqual(approveBashCommand(42), false);
+});
+
+test('approveBashCommand: rejects --snooze with non-numeric arg', () => {
+  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --snooze abc`), false);
+});
+
+test('cmdPretool: emits allow decision when stdin matches an allowed command', () => {
+  const input = JSON.stringify({
+    tool_name: 'Bash',
+    tool_input: { command: `node ${HOOK_PATH} --ack` },
+  });
+  // Use a detached pipe to simulate stdin — spawn the CLI via child_process.
+  const { spawnSync } = require('node:child_process');
+  const result = spawnSync(process.execPath, [HOOK_PATH, '--pretool'], {
+    input,
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.strictEqual(parsed.hookSpecificOutput.hookEventName, 'PreToolUse');
+  assert.strictEqual(parsed.hookSpecificOutput.permissionDecision, 'allow');
+});
+
+test('cmdPretool: stays silent for non-Bash tool calls', () => {
+  const input = JSON.stringify({
+    tool_name: 'Read',
+    tool_input: { file_path: '/tmp/x' },
+  });
+  const { spawnSync } = require('node:child_process');
+  const result = spawnSync(process.execPath, [HOOK_PATH, '--pretool'], {
+    input,
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0);
+  assert.strictEqual(result.stdout, '');
+});
+
+test('cmdPretool: stays silent for unmatched Bash commands', () => {
+  const input = JSON.stringify({
+    tool_name: 'Bash',
+    tool_input: { command: 'rm -rf /' },
+  });
+  const { spawnSync } = require('node:child_process');
+  const result = spawnSync(process.execPath, [HOOK_PATH, '--pretool'], {
+    input,
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0);
+  assert.strictEqual(result.stdout, '');
+});
+
 test('resolveStatePath throws when no HOME and no CLAUDE_CONFIG_DIR', () => {
   const savedHome = process.env.HOME;
   const savedCfg = process.env.CLAUDE_CONFIG_DIR;

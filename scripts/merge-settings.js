@@ -7,23 +7,27 @@
 // humane-hooks/template first.
 'use strict';
 
-// Usage: node merge-settings.js <settings.json-path> <hook-path> <marker>
+// Usage: node merge-settings.js <settings.json-path> <hook-path> <marker> <event> <subcommand> [matcher]
 //
-// Atomically merges a UserPromptSubmit hook entry into settings.json.
-// Idempotent: if a hook with the given marker already exists, exits 0 with "already installed".
+// Atomically merges a hook entry into settings.json for the given event.
+// Idempotent: if a hook with the given marker already exists under that event, exits 0 with "already installed".
 // Backs up the original to <settings.json>.humane-hook-backup-<epoch> before writing.
+//
+// <event>      — e.g. "UserPromptSubmit" or "PreToolUse"
+// <subcommand> — flag passed to the hook script, e.g. "--check" or "--pretool"
+// [matcher]    — optional tool-name matcher for events that support it (e.g. "Bash")
 
 const fs = require('node:fs');
 const path = require('node:path');
 
-const [settingsPath, hookPath, marker] = process.argv.slice(2);
-if (!settingsPath || !hookPath || !marker) {
-  console.error('Usage: merge-settings.js <settings.json-path> <hook-path> <marker>');
+const [settingsPath, hookPath, marker, eventName, subCommand, matcher] = process.argv.slice(2);
+if (!settingsPath || !hookPath || !marker || !eventName || !subCommand) {
+  console.error('Usage: merge-settings.js <settings.json-path> <hook-path> <marker> <event> <subcommand> [matcher]');
   process.exit(2);
 }
 
 // Build the command string with safe JSON escaping of the path.
-const hookCommand = `node ${JSON.stringify(hookPath)} --check`;
+const hookCommand = `node ${JSON.stringify(hookPath)} ${subCommand}`;
 
 function readJson(p) {
   if (!fs.existsSync(p)) return {};
@@ -53,16 +57,18 @@ const settings = readJson(settingsPath);
 
 // Ensure structure exists.
 settings.hooks = settings.hooks || {};
-settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit || [];
+settings.hooks[eventName] = settings.hooks[eventName] || [];
 
-// Idempotency: structural check on _humane_hook_marker field.
-const already = settings.hooks.UserPromptSubmit.some(
+// Idempotency: structural check on _humane_hook_marker field, scoped to this event.
+// The same marker may legitimately appear under multiple events (one per hook type),
+// so we only skip if an entry with this marker is already registered under THIS event.
+const already = settings.hooks[eventName].some(
   (entry) =>
     Array.isArray(entry.hooks) &&
     entry.hooks.some((h) => h && h._humane_hook_marker === marker)
 );
 if (already) {
-  console.log('Drink-Water hook already installed — nothing to do.');
+  console.log(`Drink-Water ${eventName} hook already installed — nothing to do.`);
   process.exit(0);
 }
 
@@ -74,8 +80,8 @@ if (fs.existsSync(settingsPath)) {
   console.log(`Backed up existing settings to ${backupPath}`);
 }
 
-// Append the hook.
-settings.hooks.UserPromptSubmit.push({
+// Append the hook. Include matcher field only when provided (PreToolUse et al).
+const entry = {
   hooks: [
     {
       type: 'command',
@@ -83,11 +89,13 @@ settings.hooks.UserPromptSubmit.push({
       _humane_hook_marker: marker,
     },
   ],
-});
+};
+if (matcher) entry.matcher = matcher;
+settings.hooks[eventName].push(entry);
 
 try {
   writeJsonAtomic(settingsPath, settings);
-  console.log(`Installed Drink-Water hook into ${settingsPath}`);
+  console.log(`Installed Drink-Water ${eventName} hook into ${settingsPath}`);
 } catch (err) {
   // Rollback: restore backup if one was created.
   if (backupPath) {

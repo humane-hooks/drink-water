@@ -8,8 +8,9 @@
 'use strict';
 
 // Usage: node unmerge-settings.js <settings.json-path> <marker>
-// Removes any UserPromptSubmit hook entries carrying the given _humane_hook_marker.
-// Exits 0 whether or not anything was removed. Backs up before modifying.
+// Removes any hook entries (across ALL event types) carrying the given
+// _humane_hook_marker. Exits 0 whether or not anything was removed. Backs up
+// before modifying.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -33,8 +34,8 @@ try {
   process.exit(1);
 }
 
-if (!settings.hooks || !Array.isArray(settings.hooks.UserPromptSubmit)) {
-  console.log('No UserPromptSubmit hooks — nothing to unmerge.');
+if (!settings.hooks || typeof settings.hooks !== 'object') {
+  console.log('No hooks configured — nothing to unmerge.');
   process.exit(0);
 }
 
@@ -42,15 +43,21 @@ if (!settings.hooks || !Array.isArray(settings.hooks.UserPromptSubmit)) {
 const backupPath = `${settingsPath}.humane-hook-backup-${Date.now()}`;
 fs.copyFileSync(settingsPath, backupPath);
 
-const before = settings.hooks.UserPromptSubmit.length;
-
+// Scan every event type for entries carrying our marker.
 // Use structural match on _humane_hook_marker (mirrors merge-settings.js).
-settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter((entry) => {
-  if (!Array.isArray(entry.hooks)) return true;
-  return !entry.hooks.some((h) => h && h._humane_hook_marker === marker);
-});
-
-const after = settings.hooks.UserPromptSubmit.length;
+let totalRemoved = 0;
+for (const eventName of Object.keys(settings.hooks)) {
+  const arr = settings.hooks[eventName];
+  if (!Array.isArray(arr)) continue;
+  const before = arr.length;
+  settings.hooks[eventName] = arr.filter((entry) => {
+    if (!Array.isArray(entry.hooks)) return true;
+    return !entry.hooks.some((h) => h && h._humane_hook_marker === marker);
+  });
+  totalRemoved += before - settings.hooks[eventName].length;
+  // Prune now-empty event arrays so we don't leave noise behind.
+  if (settings.hooks[eventName].length === 0) delete settings.hooks[eventName];
+}
 
 // Atomic write with permission preservation (same pattern as merge-settings.js).
 function writeJsonAtomic(p, obj) {
@@ -66,7 +73,7 @@ function writeJsonAtomic(p, obj) {
 
 try {
   writeJsonAtomic(settingsPath, settings);
-  console.log(`Removed ${before - after} Drink-Water hook entries. Backup: ${backupPath}`);
+  console.log(`Removed ${totalRemoved} Drink-Water hook entries. Backup: ${backupPath}`);
 } catch (err) {
   // Rollback on failure.
   try {

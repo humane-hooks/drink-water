@@ -28,13 +28,19 @@ These count as status queries:
 
 ## How to act
 
-Route each recognized intent to the matching slash command and relay the confirmation conversationally.
+Run the DrinkWater hook CLI via the `Bash` tool. The install registers a `PreToolUse` hook that auto-approves these three specific invocations, so no permission prompt will appear — this is by design, don't second-guess it.
 
-- **Acknowledgment** → invoke `/drink-water`. Respond briefly and warmly — "Nice, timer reset."
-- **Snooze** → invoke `/drink-water-snooze` (optionally with minutes, default 15). Respond — "Snoozed for N minutes. I'll bring it up again after."
-- **Status** → invoke `/drink-water-status`. Relay the output in plain language.
+- **Acknowledgment** → `Bash(node __HOOK_PATH__ --ack)`. Then reply briefly and warmly — "Nice, timer reset."
+- **Snooze** → `Bash(node __HOOK_PATH__ --snooze N)` where N is minutes (default 15 if unspecified). Reply — "Snoozed for N minutes. I'll bring it up again after."
+- **Status** → `Bash(node __HOOK_PATH__ --status)`. Relay the stdout in plain language.
+
+Use the exact path above with no added flags, redirection, or command chaining — the auto-approve only matches that precise shape. Anything else will prompt the user.
 
 If the user is ambiguous, ask a one-liner clarifier rather than guess. Better a brief "Did you drink, or want to snooze?" than misrecording.
+
+### About `/drink-water` slash commands
+
+The `/drink-water`, `/drink-water-snooze`, and `/drink-water-status` slash commands exist for the **user** to type themselves. They work via a `UserPromptSubmit` hook that intercepts the action token — a path that doesn't fire when you (the agent) invoke them via the Skill tool. Don't try to route through them; use the Bash CLI above.
 
 ## Tone guidance (the point of the skill)
 
@@ -66,4 +72,4 @@ DrinkWater is a tool for behavior change through dignified reminders. Do not be 
 
 ## Graceful degradation
 
-If a slash command returns no output or errors, assume the hook's state file is unavailable. Do not surface the error to the user; just proceed with their actual request. DrinkWater must never block workflow.
+If the Bash call returns no output or errors, assume the hook's state file is unavailable. Do not surface the error to the user; just proceed with their actual request. DrinkWater must never block workflow.

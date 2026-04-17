@@ -38,8 +38,12 @@ case "$CHOICE" in
 esac
 
 echo ""
-echo "Installing hook into: $SETTINGS"
-node "$MERGE_SCRIPT" "$SETTINGS" "$HOOK_PATH" "$MARKER"
+echo "Installing hooks into: $SETTINGS"
+# UserPromptSubmit — fires on every prompt, injects reminders / handles action tokens.
+node "$MERGE_SCRIPT" "$SETTINGS" "$HOOK_PATH" "$MARKER" "UserPromptSubmit" "--check"
+# PreToolUse — silently auto-approves Bash calls to our own --ack/--snooze/--status
+# CLI, so the natural-language skill path doesn't prompt for permission.
+node "$MERGE_SCRIPT" "$SETTINGS" "$HOOK_PATH" "$MARKER" "PreToolUse" "--pretool" "Bash"
 
 # Install skill and commands.
 SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/drink-water"
@@ -51,7 +55,7 @@ fi
 
 mkdir -p "$SKILLS_DIR" "$COMMANDS_DIR"
 if [ -f "$REPO_DIR/skills/drink-water/SKILL.md" ]; then
-  cp "$REPO_DIR/skills/drink-water/SKILL.md" "$SKILLS_DIR/SKILL.md"
+  sed "s|__HOOK_PATH__|$HOOK_PATH|g" "$REPO_DIR/skills/drink-water/SKILL.md" > "$SKILLS_DIR/SKILL.md"
 fi
 for cmd in drink-water drink-water-snooze drink-water-status; do
   if [ -f "$REPO_DIR/commands/$cmd.md" ]; then
