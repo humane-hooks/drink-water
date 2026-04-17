@@ -24,3 +24,22 @@ Node.js stdlib only. No npm install, no build step, no package manager. Clone it
 
 ### 7. Minimal state
 If you can't describe your state in under 5 fields, your hook is doing too much. State should be deleteable — the hook recreates it on next run.
+
+## Is it a Humane Hook?
+
+Before building, check the idea against these. If you can answer yes to all five, build it.
+
+- Does it address a real human need that's easy to forget during deep work?
+- Does it check in at the natural seam between prompts, never mid-flow?
+- Does it adapt tone to context — time of day, session length, the user's register?
+- Does it respect the user's autonomy — snooze, dismiss, and ignore all valid?
+- Does it work with zero dependencies on any machine with Node.js 18+?
+
+## Anti-patterns
+
+These look like features. They aren't.
+
+- **Gamification** — streaks, scores, badges, leaderboards. The reminder is the product, not a game.
+- **Surveillance** — tracking patterns, logging history, analytics dashboards. State stays minimal and deleteable.
+- **Guilt** — shame language, passive-aggressive tone, withholding work as leverage. Respect is non-negotiable.
+- **Scope creep** — settings UIs, companion apps, integrations with other tools. One hook, one reminder, one loop.
