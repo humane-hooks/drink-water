@@ -13,7 +13,7 @@ Unit tests cover:
 - Anti-double-injection suppression
 - Late-hours detection
 - CLI subcommands (ack, snooze, status)
-- Slash command and action token parsing
+- PreToolUse auto-approve regex (accepted shapes and injection attempts)
 - Hook output format (valid JSON, correct structure)
 
 These run in CI on every push and PR (Node 18/20/22).

@@ -158,46 +158,6 @@ function formatHookOutput(additionalContext) {
 }
 
 // ---------------------------------------------------------------------------
-// Action parsing (slash commands & action tokens)
-// ---------------------------------------------------------------------------
-
-const ACTION_RE = /<drink-water-action>([^<]+)<\/drink-water-action>/;
-
-function parseAction(promptText) {
-  if (!promptText || typeof promptText !== 'string') return null;
-
-  // Token form (expanded slash command body, or manual insertion).
-  const tok = promptText.match(ACTION_RE);
-  if (tok) {
-    const raw = tok[1].trim();
-    if (raw === 'ack') return { kind: 'ack' };
-    if (raw === 'status') return { kind: 'status' };
-    if (raw.startsWith('snooze')) {
-      const parts = raw.split(':');
-      const parsed = parseInt(parts[1], 10);
-      const minutes = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SNOOZE_MIN;
-      return { kind: 'snooze', minutes };
-    }
-    return null;
-  }
-
-  // Raw slash-command form. UserPromptSubmit hooks receive the typed input
-  // *before* slash-command expansion, so this is the path that fires in
-  // practice.
-  const trimmed = promptText.trim();
-  if (trimmed === '/drink-water') return { kind: 'ack' };
-  if (trimmed === '/drink-water-status') return { kind: 'status' };
-  const snooze = trimmed.match(/^\/drink-water-snooze(?:\s+(\d+))?$/);
-  if (snooze) {
-    const parsed = parseInt(snooze[1], 10);
-    const minutes = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SNOOZE_MIN;
-    return { kind: 'snooze', minutes };
-  }
-
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // Hook input (stdin from Claude Code)
 // ---------------------------------------------------------------------------
 
@@ -210,59 +170,6 @@ function readHookInput() {
   } catch (_err) {
     return null;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Action execution
-// ---------------------------------------------------------------------------
-
-function performAction(action, state, now) {
-  if (action.kind === 'ack') {
-    return {
-      newState: {
-        last_drink_at: now.toISOString(),
-        snooze_until: null,
-        last_injected_at: state.last_injected_at,
-      },
-      contextText:
-        '<drink-water-confirmation>\n' +
-        'The user acknowledged drinking water. Timer has been reset.\n' +
-        'Respond warmly and briefly — one short line.\n' +
-        '</drink-water-confirmation>\n',
-    };
-  }
-  if (action.kind === 'snooze') {
-    const snoozeUntil = new Date(now.getTime() + action.minutes * MINUTE_MS).toISOString();
-    return {
-      newState: {
-        last_drink_at: state.last_drink_at,
-        snooze_until: snoozeUntil,
-        last_injected_at: state.last_injected_at,
-      },
-      contextText:
-        '<drink-water-confirmation>\n' +
-        'The user snoozed water reminders for ' + action.minutes + ' minutes.\n' +
-        'Respond briefly — acknowledge the snooze duration.\n' +
-        '</drink-water-confirmation>\n',
-    };
-  }
-  if (action.kind === 'status') {
-    const lastMs = new Date(state.last_drink_at).getTime();
-    const gapMin = Math.round((now.getTime() - lastMs) / MINUTE_MS);
-    const staleness = classifyStaleness(lastMs, now.getTime());
-    const snoozed = isSnoozed(state.snooze_until, now);
-    const snoozeLine = snoozed ? 'yes, until ' + state.snooze_until : 'no';
-    return {
-      newState: null,
-      contextText:
-        '<drink-water-confirmation>\n' +
-        'Last cup: ' + gapMin + ' minutes ago (' + staleness + ')\n' +
-        'Snoozed: ' + snoozeLine + '\n' +
-        'Relay to the user in plain language.\n' +
-        '</drink-water-confirmation>\n',
-    };
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,19 +202,6 @@ function cmdCheck(now = new Date()) {
       return;
     }
 
-    // If the prompt carries an action token, handle it and short-circuit.
-    const input = readHookInput();
-    const promptText = input && typeof input.prompt === 'string' ? input.prompt : '';
-    const action = parseAction(promptText);
-    if (action) {
-      const result = performAction(action, state, now);
-      if (result) {
-        if (result.newState) writeState(result.newState, statePath);
-        process.stdout.write(formatHookOutput(result.contextText));
-      }
-      return;
-    }
-
     if (isSnoozed(state.snooze_until, now)) return;
 
     const lastMs = new Date(state.last_drink_at).getTime();
@@ -335,6 +229,8 @@ function cmdCheck(now = new Date()) {
   }
 }
 
+// Silent on success: the slash-command / skill instructs the agent to
+// provide a single warm reply. Anything printed here would duplicate that.
 function cmdAck(now = new Date()) {
   try {
     const statePath = resolveStatePath();
@@ -347,7 +243,6 @@ function cmdAck(now = new Date()) {
       },
       statePath
     );
-    process.stdout.write('Acknowledged. Timer reset.\n');
   } catch (_err) {}
 }
 
@@ -366,14 +261,14 @@ function cmdSnooze(args = [], now = new Date()) {
       },
       statePath
     );
-    process.stdout.write('Snoozed for ' + minutes + ' minutes.\n');
   } catch (_err) {}
 }
 
 // ---------------------------------------------------------------------------
 // PreToolUse approval: auto-approve Bash calls to this hook's own CLI
-// (--ack / --snooze [N] / --status). Keeps the natural-language skill path
-// permission-prompt-free without requiring a brittle settings.json allowlist.
+// (--ack / --snooze [N] / --status). Keeps the slash-command and
+// natural-language skill paths permission-prompt-free without requiring a
+// brittle settings.json allowlist.
 // ---------------------------------------------------------------------------
 
 function approveBashCommand(command, hookPath = __filename) {
@@ -445,5 +340,5 @@ module.exports = {
   classifyStaleness, isSnoozed, shouldSuppressStandardRefire, isLateHours,
   buildReminderText, formatHookOutput, cmdCheck,
   cmdAck, cmdSnooze, cmdStatus, cmdPretool, main,
-  parseAction, performAction, approveBashCommand,
+  approveBashCommand,
 };

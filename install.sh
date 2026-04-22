@@ -39,10 +39,10 @@ esac
 
 echo ""
 echo "Installing hooks into: $SETTINGS"
-# UserPromptSubmit — fires on every prompt, injects reminders / handles action tokens.
+# UserPromptSubmit — fires on every prompt, injects reminders based on staleness.
 node "$MERGE_SCRIPT" "$SETTINGS" "$HOOK_PATH" "$MARKER" "UserPromptSubmit" "--check"
 # PreToolUse — silently auto-approves Bash calls to our own --ack/--snooze/--status
-# CLI, so the natural-language skill path doesn't prompt for permission.
+# CLI, so neither the slash commands nor the natural-language skill path prompt.
 node "$MERGE_SCRIPT" "$SETTINGS" "$HOOK_PATH" "$MARKER" "PreToolUse" "--pretool" "Bash"
 
 # Install skill and commands.
