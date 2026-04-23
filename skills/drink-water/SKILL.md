@@ -7,6 +7,16 @@ description: Use when the user acknowledges drinking water (e.g., "yes I drank,"
 
 DrinkWater nudges the user to drink water at humane intervals. When a `<drink-water-reminder>` block appears in the conversation, follow its instruction. When the user mentions water in natural language, recognize and handle it. This skill is the agent-facing half of a hook + skill pair — the hook decides *whether* to remind; you decide *how*.
 
+## Precedence: explicit user actions beat reminder context
+
+A `<drink-water-reminder>` block and an explicit user action can appear in the same turn (e.g. the reminder fires on UserPromptSubmit and the user's message is `/drink-water`). When they conflict, **the user's action wins**:
+
+- **Slash command in the user's message** (`<command-name>` of `/drink-water`, `/drink-water-snooze`, or `/drink-water-status`): primary signal. Run the matching Bash CLI first, then reply briefly. Do not greet, do not ask if they'd like water — they already answered.
+- **Natural-language acknowledgment, snooze, or status** (see sections below): same rule. Act first, respond briefly.
+- **Reminder block only** (user message is neutral — no slash command, no water mention): follow the reminder's instruction (greet warmly, suggest a glass, etc.) using the tone bands below.
+
+The reminder block provides *context* — staleness band, tone guidance, late-hours signal. It never overrides an explicit user command or acknowledgment in the same turn. A welcome-back greeting after the user has just typed `/drink-water` is a bug, not a feature.
+
 ## How to recognize acknowledgments
 
 The user's phrasing varies. These all count as "I drank water, reset the timer":
@@ -40,7 +50,13 @@ If the user is ambiguous, ask a one-liner clarifier rather than guess. Better a 
 
 ### About `/drink-water` slash commands
 
-The `/drink-water`, `/drink-water-snooze`, and `/drink-water-status` slash commands are for the **user** to type themselves. Their bodies instruct you (the agent) to invoke the same Bash CLI described above. You don't need to invoke the slash commands yourself — when you detect natural-language acknowledgment, go straight to the Bash CLI.
+The `/drink-water`, `/drink-water-snooze`, and `/drink-water-status` slash commands are user-facing shortcuts. When the user types one, treat it as the primary signal (see **Precedence** above) and run the corresponding Bash CLI:
+
+- `/drink-water` → `--ack`
+- `/drink-water-snooze [N]` → `--snooze N`
+- `/drink-water-status` → `--status`
+
+For natural-language acknowledgments, go straight to the Bash CLI — you do not invoke slash commands yourself as an intermediate step.
 
 ## Tone guidance (the point of the skill)
 
