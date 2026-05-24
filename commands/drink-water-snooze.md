@@ -3,6 +3,4 @@ description: Snooze drink-water reminders for N minutes (default 15).
 argument-hint: "[minutes]"
 ---
 
-Invoke Bash with exactly this command (substitute `$ARGUMENTS` for minutes; if blank, leave it blank — the CLI defaults to 15): `node __HOOK_PATH__ --snooze $ARGUMENTS`
-
-The CLI is silent on success. Reply with one short line confirming the snooze duration.
+The drink-water UserPromptSubmit hook has already applied the snooze (see the `<drink-water-action-result>` block in your context for the exact duration). Reply with one short line confirming. Do not invoke any tools.

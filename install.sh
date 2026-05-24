@@ -5,7 +5,6 @@ set -eu
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOK_PATH="$REPO_DIR/hooks/drink-water.js"
 MERGE_SCRIPT="$REPO_DIR/scripts/merge-settings.js"
-MARKER="drink-water-hook-v1"
 
 echo ""
 echo "Drink-Water helps you stay on track while coding with Claude Code."
@@ -38,12 +37,25 @@ case "$CHOICE" in
 esac
 
 echo ""
-echo "Installing hooks into: $SETTINGS"
+echo "Installing into: $SETTINGS"
+
 # UserPromptSubmit — fires on every prompt, injects reminders based on staleness.
-node "$MERGE_SCRIPT" "$SETTINGS" "$HOOK_PATH" "$MARKER" "UserPromptSubmit" "--check"
-# PreToolUse — silently auto-approves Bash calls to our own --ack/--snooze/--status
-# CLI, so neither the slash commands nor the natural-language skill path prompt.
-node "$MERGE_SCRIPT" "$SETTINGS" "$HOOK_PATH" "$MARKER" "PreToolUse" "--pretool" "Bash"
+# install-hook dedups any prior entries pointing at this hook path, so re-runs
+# converge on exactly one entry.
+node "$MERGE_SCRIPT" "$SETTINGS" install-hook "$HOOK_PATH" "UserPromptSubmit" "--check"
+
+# Migration: earlier installs registered a PreToolUse auto-approve hook for the
+# Bash CLI. That mechanism is bypassed by an explicit `permissions.ask:["Bash"]`
+# rule (documented behavior — hook allow decisions don't override ask rules),
+# so we use permissions.allow instead. Safe no-op if no prior PreToolUse entry.
+node "$MERGE_SCRIPT" "$SETTINGS" remove-hook "$HOOK_PATH" "PreToolUse"
+
+# Allow Bash invocations of our own CLI without permission prompts. Three
+# tight rules — --ack and --status are exact, --snooze:* covers `--snooze`
+# and `--snooze N`.
+node "$MERGE_SCRIPT" "$SETTINGS" install-permission "Bash(node $HOOK_PATH --ack)"
+node "$MERGE_SCRIPT" "$SETTINGS" install-permission "Bash(node $HOOK_PATH --status)"
+node "$MERGE_SCRIPT" "$SETTINGS" install-permission "Bash(node $HOOK_PATH --snooze:*)"
 
 # Install skill and commands.
 SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/drink-water"
@@ -67,7 +79,7 @@ echo ""
 echo "Drink-Water is installed."
 echo "  Skill:    $SKILLS_DIR/SKILL.md"
 echo "  Commands: $COMMANDS_DIR/drink-water.md, drink-water-snooze.md, drink-water-status.md"
-echo "  Hook:     $SETTINGS"
+echo "  Settings: $SETTINGS"
 echo ""
 echo "You'll see a confirmation message on your next prompt in Claude Code."
 echo "To uninstall: $REPO_DIR/uninstall.sh"

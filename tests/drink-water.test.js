@@ -371,121 +371,6 @@ test('staleness math is correct across UTC/local timezone boundaries', () => {
   assert.strictEqual(classifyStaleness(lastMs, lastMs + 150 * 60 * 1000), 'insistent');
 });
 
-const { approveBashCommand, cmdPretool } = require('../hooks/drink-water.js');
-
-const HOOK_PATH = require.resolve('../hooks/drink-water.js');
-
-test('approveBashCommand: bare path + --ack', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack`), true);
-});
-
-test('approveBashCommand: double-quoted path + --ack', () => {
-  assert.strictEqual(approveBashCommand(`node "${HOOK_PATH}" --ack`), true);
-});
-
-test('approveBashCommand: single-quoted path + --ack', () => {
-  assert.strictEqual(approveBashCommand(`node '${HOOK_PATH}' --ack`), true);
-});
-
-test('approveBashCommand: --status', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --status`), true);
-});
-
-test('approveBashCommand: --snooze with minutes', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --snooze 30`), true);
-});
-
-test('approveBashCommand: --snooze without minutes', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --snooze`), true);
-});
-
-test('approveBashCommand: leading/trailing whitespace is fine', () => {
-  assert.strictEqual(approveBashCommand(`  node ${HOOK_PATH} --ack  `), true);
-});
-
-test('approveBashCommand: rejects command chaining (&&)', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack && rm -rf /`), false);
-});
-
-test('approveBashCommand: rejects semicolon injection', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack; echo pwned`), false);
-});
-
-test('approveBashCommand: rejects pipe injection', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack | cat /etc/passwd`), false);
-});
-
-test('approveBashCommand: rejects redirection', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --ack > /tmp/x`), false);
-});
-
-test('approveBashCommand: rejects unknown flag', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --nuke`), false);
-});
-
-test('approveBashCommand: rejects --check (reserved for the UserPromptSubmit hook)', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --check`), false);
-});
-
-test('approveBashCommand: rejects a different script path', () => {
-  assert.strictEqual(approveBashCommand('node /tmp/other-script.js --ack'), false);
-});
-
-test('approveBashCommand: rejects non-string input', () => {
-  assert.strictEqual(approveBashCommand(null), false);
-  assert.strictEqual(approveBashCommand(undefined), false);
-  assert.strictEqual(approveBashCommand(42), false);
-});
-
-test('approveBashCommand: rejects --snooze with non-numeric arg', () => {
-  assert.strictEqual(approveBashCommand(`node ${HOOK_PATH} --snooze abc`), false);
-});
-
-test('cmdPretool: emits allow decision when stdin matches an allowed command', () => {
-  const input = JSON.stringify({
-    tool_name: 'Bash',
-    tool_input: { command: `node ${HOOK_PATH} --ack` },
-  });
-  // Use a detached pipe to simulate stdin — spawn the CLI via child_process.
-  const { spawnSync } = require('node:child_process');
-  const result = spawnSync(process.execPath, [HOOK_PATH, '--pretool'], {
-    input,
-    encoding: 'utf8',
-  });
-  assert.strictEqual(result.status, 0);
-  const parsed = JSON.parse(result.stdout);
-  assert.strictEqual(parsed.hookSpecificOutput.hookEventName, 'PreToolUse');
-  assert.strictEqual(parsed.hookSpecificOutput.permissionDecision, 'allow');
-});
-
-test('cmdPretool: stays silent for non-Bash tool calls', () => {
-  const input = JSON.stringify({
-    tool_name: 'Read',
-    tool_input: { file_path: '/tmp/x' },
-  });
-  const { spawnSync } = require('node:child_process');
-  const result = spawnSync(process.execPath, [HOOK_PATH, '--pretool'], {
-    input,
-    encoding: 'utf8',
-  });
-  assert.strictEqual(result.status, 0);
-  assert.strictEqual(result.stdout, '');
-});
-
-test('cmdPretool: stays silent for unmatched Bash commands', () => {
-  const input = JSON.stringify({
-    tool_name: 'Bash',
-    tool_input: { command: 'rm -rf /' },
-  });
-  const { spawnSync } = require('node:child_process');
-  const result = spawnSync(process.execPath, [HOOK_PATH, '--pretool'], {
-    input,
-    encoding: 'utf8',
-  });
-  assert.strictEqual(result.status, 0);
-  assert.strictEqual(result.stdout, '');
-});
-
 test('resolveStatePath throws when no HOME and no CLAUDE_CONFIG_DIR', () => {
   const savedHome = process.env.HOME;
   const savedCfg = process.env.CLAUDE_CONFIG_DIR;
@@ -508,4 +393,90 @@ test('resolveStatePath throws when no HOME and no CLAUDE_CONFIG_DIR', () => {
   if (savedHome !== undefined) process.env.HOME = savedHome;
   if (savedCfg !== undefined) process.env.CLAUDE_CONFIG_DIR = savedCfg;
   if (savedStateDir !== undefined) process.env.DRINK_WATER_STATE_DIR = savedStateDir;
+});
+
+// ---------------------------------------------------------------------------
+// merge-settings.js — pure-function tests for install/uninstall orchestration.
+// ---------------------------------------------------------------------------
+const merge = require('../scripts/merge-settings.js');
+
+test('merge: install-hook appends entry when none exists', () => {
+  const settings = {};
+  merge.doInstallHook(settings, '/abs/path/foo.js', 'UserPromptSubmit', '--check');
+  assert.strictEqual(settings.hooks.UserPromptSubmit.length, 1);
+  assert.match(settings.hooks.UserPromptSubmit[0].hooks[0].command, /\/abs\/path\/foo\.js.*--check/);
+});
+
+test('merge: install-hook dedups existing entries pointing at same hook path', () => {
+  const settings = {
+    hooks: {
+      UserPromptSubmit: [
+        { hooks: [{ type: 'command', command: 'node "/abs/path/foo.js" --check' }] },
+        { hooks: [{ type: 'command', command: 'node "/abs/path/foo.js" --check' }] },
+        { hooks: [{ type: 'command', command: 'node "/other/path/bar.js" --check' }] },
+      ],
+    },
+  };
+  merge.doInstallHook(settings, '/abs/path/foo.js', 'UserPromptSubmit', '--check');
+  assert.strictEqual(settings.hooks.UserPromptSubmit.length, 2);
+  assert.strictEqual(
+    settings.hooks.UserPromptSubmit.filter((e) =>
+      e.hooks.some((h) => h.command.includes('/abs/path/foo.js'))).length,
+    1
+  );
+});
+
+test('merge: install-hook attaches matcher when provided', () => {
+  const settings = {};
+  merge.doInstallHook(settings, '/abs/path/foo.js', 'PreToolUse', '--pretool', 'Bash');
+  assert.strictEqual(settings.hooks.PreToolUse[0].matcher, 'Bash');
+});
+
+test('merge: remove-hook removes all matching entries and prunes empty arrays', () => {
+  const settings = {
+    hooks: {
+      PreToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'command', command: 'node "/abs/path/foo.js" --pretool' }] },
+        { matcher: 'Bash', hooks: [{ type: 'command', command: 'node "/abs/path/foo.js" --pretool' }] },
+      ],
+    },
+  };
+  merge.doRemoveHook(settings, '/abs/path/foo.js', 'PreToolUse');
+  assert.strictEqual(settings.hooks.PreToolUse, undefined);
+});
+
+test('merge: remove-hook is no-op when event/path absent', () => {
+  const settings = { hooks: { UserPromptSubmit: [
+    { hooks: [{ type: 'command', command: 'node "/other/path.js" --check' }] },
+  ] } };
+  const result = merge.doRemoveHook(settings, '/abs/path/foo.js', 'UserPromptSubmit');
+  assert.match(result.summary, /No UserPromptSubmit entries to remove/);
+  assert.strictEqual(settings.hooks.UserPromptSubmit.length, 1);
+});
+
+test('merge: install-permission adds rule when absent', () => {
+  const settings = {};
+  merge.doInstallPermission(settings, 'Bash(node /abs/path/foo.js --ack)');
+  assert.deepStrictEqual(settings.permissions.allow, ['Bash(node /abs/path/foo.js --ack)']);
+});
+
+test('merge: install-permission is idempotent', () => {
+  const settings = { permissions: { allow: ['Bash(node /abs/path/foo.js --ack)'] } };
+  merge.doInstallPermission(settings, 'Bash(node /abs/path/foo.js --ack)');
+  assert.strictEqual(settings.permissions.allow.length, 1);
+});
+
+test('merge: remove-permission removes exact match', () => {
+  const settings = { permissions: { allow: [
+    'Bash(node /abs/path/foo.js --ack)',
+    'Bash(node /abs/path/foo.js --status)',
+  ] } };
+  merge.doRemovePermission(settings, 'Bash(node /abs/path/foo.js --ack)');
+  assert.deepStrictEqual(settings.permissions.allow, ['Bash(node /abs/path/foo.js --status)']);
+});
+
+test('merge: entryMatchesHook detects path inside quoted command string', () => {
+  const entry = { hooks: [{ type: 'command', command: 'node "/abs/path/foo.js" --check' }] };
+  assert.strictEqual(merge.entryMatchesHook(entry, '/abs/path/foo.js'), true);
+  assert.strictEqual(merge.entryMatchesHook(entry, '/other/path.js'), false);
 });

@@ -2,17 +2,24 @@
 set -eu
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-UNMERGE_SCRIPT="$REPO_DIR/scripts/unmerge-settings.js"
-MARKER="drink-water-hook-v1"
+HOOK_PATH="$REPO_DIR/hooks/drink-water.js"
+MERGE_SCRIPT="$REPO_DIR/scripts/merge-settings.js"
 
 GLOBAL_SETTINGS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 PROJECT_SETTINGS=".claude/settings.json"
 
 echo "Uninstalling Drink-Water..."
 
-# Remove hook from both possible locations (no-op if absent).
-[ -f "$GLOBAL_SETTINGS" ] && node "$UNMERGE_SCRIPT" "$GLOBAL_SETTINGS" "$MARKER" || true
-[ -f "$PROJECT_SETTINGS" ] && node "$UNMERGE_SCRIPT" "$PROJECT_SETTINGS" "$MARKER" || true
+# Remove hooks (UserPromptSubmit + any legacy PreToolUse) and permission rules
+# from both possible locations. Each operation is a no-op if nothing matches.
+for SETTINGS in "$GLOBAL_SETTINGS" "$PROJECT_SETTINGS"; do
+  [ -f "$SETTINGS" ] || continue
+  node "$MERGE_SCRIPT" "$SETTINGS" remove-hook "$HOOK_PATH" "UserPromptSubmit" || true
+  node "$MERGE_SCRIPT" "$SETTINGS" remove-hook "$HOOK_PATH" "PreToolUse" || true
+  node "$MERGE_SCRIPT" "$SETTINGS" remove-permission "Bash(node $HOOK_PATH --ack)" || true
+  node "$MERGE_SCRIPT" "$SETTINGS" remove-permission "Bash(node $HOOK_PATH --status)" || true
+  node "$MERGE_SCRIPT" "$SETTINGS" remove-permission "Bash(node $HOOK_PATH --snooze:*)" || true
+done
 
 # Remove skill and slash-command files from both possible locations.
 for base in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" ".claude"; do

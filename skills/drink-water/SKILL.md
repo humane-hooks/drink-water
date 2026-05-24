@@ -38,25 +38,23 @@ These count as status queries:
 
 ## How to act
 
-Run the DrinkWater hook CLI via the `Bash` tool. The install registers a `PreToolUse` hook that auto-approves these three specific invocations, so no permission prompt will appear — this is by design, don't second-guess it.
+There are two paths, depending on how the user invoked the action.
+
+### Path 1 — Slash command (`/drink-water`, `/drink-water-snooze [N]`, `/drink-water-status`)
+
+The DrinkWater UserPromptSubmit hook handles these directly and emits a `<drink-water-action-result>` block into your context. **Do not invoke any tools.** Read the result block, then reply in one short line. The block contains an `instruction:` field telling you exactly how to reply.
+
+### Path 2 — Natural-language acknowledgment, snooze, or status
+
+For phrases like "yes I drank," "snooze 20," or "when did I last drink?", run the Bash CLI directly:
 
 - **Acknowledgment** → `Bash(node __HOOK_PATH__ --ack)`. Then reply briefly and warmly — "Nice, timer reset."
-- **Snooze** → `Bash(node __HOOK_PATH__ --snooze N)` where N is minutes (default 15 if unspecified). Reply — "Snoozed for N minutes. I'll bring it up again after."
+- **Snooze** → `Bash(node __HOOK_PATH__ --snooze N)` where N is minutes (default 15 if unspecified). Reply — "Snoozed for N minutes."
 - **Status** → `Bash(node __HOOK_PATH__ --status)`. Relay the stdout in plain language.
 
-Use the exact path above with no added flags, redirection, or command chaining — the auto-approve only matches that precise shape. Anything else will prompt the user.
+The install adds matching `permissions.allow` entries, but if the user's settings include a broader `permissions.ask:["Bash"]` rule, those calls will still prompt (Claude Code evaluates `ask` before `allow`). If you see repeated prompts, tell the user — they may want to nudge ack-by-slash-command instead.
 
-If the user is ambiguous, ask a one-liner clarifier rather than guess. Better a brief "Did you drink, or want to snooze?" than misrecording.
-
-### About `/drink-water` slash commands
-
-The `/drink-water`, `/drink-water-snooze`, and `/drink-water-status` slash commands are user-facing shortcuts. When the user types one, treat it as the primary signal (see **Precedence** above) and run the corresponding Bash CLI:
-
-- `/drink-water` → `--ack`
-- `/drink-water-snooze [N]` → `--snooze N`
-- `/drink-water-status` → `--status`
-
-For natural-language acknowledgments, go straight to the Bash CLI — you do not invoke slash commands yourself as an intermediate step.
+If the user is ambiguous, ask a one-liner clarifier rather than guess. Better a brief "Did you hydrate, or want to snooze?" than misrecording.
 
 ## Tone guidance (the point of the skill)
 

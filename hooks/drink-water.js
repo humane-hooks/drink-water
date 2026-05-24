@@ -176,9 +176,86 @@ function readHookInput() {
 // CLI commands
 // ---------------------------------------------------------------------------
 
+// Handle /drink-water[-status|-snooze N] inline. Returns true if the prompt
+// was a recognized slash command (caller should return without further work).
+function handleSlashCommand(promptText, now) {
+  const trimmed = (promptText || '').trim();
+  // Check the longer prefixes first — `/drink-water` is a prefix of the others.
+  if (trimmed === '/drink-water-status' || trimmed.startsWith('/drink-water-status ')) {
+    emitStatusContext(now);
+    return true;
+  }
+  if (trimmed === '/drink-water-snooze' || trimmed.startsWith('/drink-water-snooze ')) {
+    const rest = trimmed.slice('/drink-water-snooze'.length).trim();
+    const parsed = parseInt(rest, 10);
+    const minutes = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SNOOZE_MIN;
+    cmdSnooze([String(minutes)], now);
+    process.stdout.write(formatHookOutput(
+      '<drink-water-action-result>\n' +
+      'event: snooze\n' +
+      'minutes: ' + minutes + '\n' +
+      'instruction: Reply with one short line confirming the snooze duration.\n' +
+      '</drink-water-action-result>\n'
+    ));
+    return true;
+  }
+  if (trimmed === '/drink-water' || trimmed.startsWith('/drink-water ')) {
+    cmdAck(now);
+    process.stdout.write(formatHookOutput(
+      '<drink-water-action-result>\n' +
+      'event: ack\n' +
+      'result: Timer reset.\n' +
+      'instruction: Reply with one short warm line and move on. Do not invoke any tools.\n' +
+      '</drink-water-action-result>\n'
+    ));
+    return true;
+  }
+  return false;
+}
+
+function emitStatusContext(now) {
+  try {
+    const statePath = resolveStatePath();
+    const state = readState(statePath);
+    if (!state._existed) {
+      process.stdout.write(formatHookOutput(
+        '<drink-water-action-result>\n' +
+        'event: status\n' +
+        'result: not-initialized\n' +
+        'instruction: Tell the user DrinkWater is not yet initialized; the next prompt will set it up.\n' +
+        '</drink-water-action-result>\n'
+      ));
+      return;
+    }
+    const lastMs = new Date(state.last_drink_at).getTime();
+    const gapMin = Math.round((now.getTime() - lastMs) / MINUTE_MS);
+    const staleness = classifyStaleness(lastMs, now.getTime());
+    const snoozed = isSnoozed(state.snooze_until, now);
+    process.stdout.write(formatHookOutput(
+      '<drink-water-action-result>\n' +
+      'event: status\n' +
+      'last_drink_min_ago: ' + gapMin + '\n' +
+      'staleness: ' + staleness + '\n' +
+      'snoozed: ' + (snoozed ? ('yes, until ' + state.snooze_until) : 'no') + '\n' +
+      'instruction: Relay this status in one plain-language sentence.\n' +
+      '</drink-water-action-result>\n'
+    ));
+  } catch (_err) {}
+}
+
 function cmdCheck(now = new Date()) {
   try {
     if (process.env['DRINK_WATER_DISABLED'] === '1') return;
+
+    // Slash-command dispatch: handle /drink-water[-status|-snooze N] directly
+    // in the hook. This avoids any Bash tool call (and the permission prompt
+    // that comes with it). Natural-language acknowledgment ("I drank water")
+    // still flows through the Skill→Bash path.
+    const input = readHookInput();
+    if (input && typeof input.prompt === 'string') {
+      const handled = handleSlashCommand(input.prompt, now);
+      if (handled) return;
+    }
 
     const statePath = resolveStatePath();
     const state = readState(statePath);
@@ -264,41 +341,6 @@ function cmdSnooze(args = [], now = new Date()) {
   } catch (_err) {}
 }
 
-// ---------------------------------------------------------------------------
-// PreToolUse approval: auto-approve Bash calls to this hook's own CLI
-// (--ack / --snooze [N] / --status). Keeps the slash-command and
-// natural-language skill paths permission-prompt-free without requiring a
-// brittle settings.json allowlist.
-// ---------------------------------------------------------------------------
-
-function approveBashCommand(command, hookPath = __filename) {
-  if (typeof command !== 'string') return false;
-  const trimmed = command.trim();
-  const escaped = hookPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pathAlt = `(?:"${escaped}"|'${escaped}'|${escaped})`;
-  const flagAlt = '(?:--ack|--status|--snooze(?:\\s+\\d+)?)';
-  const re = new RegExp(`^node\\s+${pathAlt}\\s+${flagAlt}\\s*$`);
-  return re.test(trimmed);
-}
-
-function cmdPretool() {
-  try {
-    const input = readHookInput();
-    if (!input || input.tool_name !== 'Bash') return;
-    const command = input.tool_input && input.tool_input.command;
-    if (!approveBashCommand(command)) return;
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'allow',
-        permissionDecisionReason: 'drink-water self-approve',
-      },
-    }) + '\n');
-  } catch (_err) {
-    // Never block tool calls on this hook's own bugs — stay silent on error.
-  }
-}
-
 function cmdStatus(now = new Date()) {
   try {
     const statePath = resolveStatePath();
@@ -329,8 +371,7 @@ function main(argv = process.argv) {
   else if (cmd === '--ack') cmdAck();
   else if (cmd === '--snooze') cmdSnooze(argv.slice(3));
   else if (cmd === '--status') cmdStatus();
-  else if (cmd === '--pretool') cmdPretool();
-  else process.stdout.write('Usage: drink-water.js --check | --ack | --snooze [minutes] | --status | --pretool\n');
+  else process.stdout.write('Usage: drink-water.js --check | --ack | --snooze [minutes] | --status\n');
 }
 
 if (require.main === module) main(process.argv);
@@ -339,6 +380,5 @@ module.exports = {
   resolveStatePath, readState, writeState,
   classifyStaleness, isSnoozed, shouldSuppressStandardRefire, isLateHours,
   buildReminderText, formatHookOutput, cmdCheck,
-  cmdAck, cmdSnooze, cmdStatus, cmdPretool, main,
-  approveBashCommand,
+  cmdAck, cmdSnooze, cmdStatus, main,
 };
